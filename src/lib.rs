@@ -4,7 +4,7 @@
 #![feature(read_initializer)]
 #![feature(toowned_clone_into)]
 
-use std::io::{BufRead, Error, ErrorKind};
+use std::io::{BufRead, Error};
 
 #[derive(Debug)]
 pub struct IfsReader<'a, R> {
@@ -49,6 +49,16 @@ impl<R: BufRead> Iterator for IfsReader<'_, R> {
     fn next(&mut self) -> Option<Self::Item> {
         let mut buf = Vec::new();
 
+        /********************************************/
+        /* Specialized solution. Not general at all */
+        /********************************************/
+        let contains = |needle: &[u8], haystack: &[u8]| {
+            haystack
+                .rchunks_exact(needle.len())
+                .next()
+                .contains(&needle)
+        };
+
         // Edge check; Check so delim is not null
         // else return everything in reader
         if self.delim.is_empty() {
@@ -59,31 +69,17 @@ impl<R: BufRead> Iterator for IfsReader<'_, R> {
             };
         }
 
+        // Read until end of delim byte and check if delim exists at the end
+        // of the buffer or read in more if it was a false positive
         loop {
-            // Read until delim[0] or eof
-            if let Err(e) = self.inner.read_until(self.delim[0], &mut buf) {
-                return Some(Err(e));
-            } else if self.delim.first() != buf.last() {
-                // Reader did not put matching delim at the end of buffer
-                return if buf.is_empty() { None } else { Some(Ok(buf)) };
-            }
-
-            // Last position before delim
-            let pos = buf.len() - 1;
-            buf.resize(pos + self.delim.len(), 0);
-
-            // Read in rest of delim
-            match self.inner.read_exact(&mut buf[pos + 1..]) {
-                // Skip comparing 1 byte of delim as it's already checked
-                Ok(_) if self.delim[1..].eq(&buf[pos + 1..]) => {
-                    return Some(Ok(buf[..pos].to_vec()));
-                }
-                // Eof means that we found no delim, which is not an issue
-                Err(e) if e.kind().eq(&ErrorKind::UnexpectedEof) => {
+            match self.inner.read_until(*self.delim.last().unwrap(), &mut buf) {
+                Ok(0) => return if buf.is_empty() { None } else { Some(Ok(buf)) },
+                Ok(_) if contains(&self.delim, &buf) => {
+                    buf.truncate(buf.len() - self.delim.len());
                     return Some(Ok(buf));
                 }
                 Err(e) => return Some(Err(e)),
-                _ => (),
+                _ => continue,
             }
         }
     }
@@ -147,6 +143,21 @@ mod tests {
     }
 
     #[test]
+    fn complexer_delim() {
+        let mut stream = MockStream::new();
+        stream.push_bytes_to_read(&[9, 0, 9, 9, 9, 0, 9, 0, 9, 9, 9, 9, 9, 9, 9]);
+        let inner = BufReader::new(stream);
+        let delim = [9, 9];
+        let mut reader = IfsReader::new(inner, &delim);
+        assert_eq!(reader.next().unwrap().unwrap(), vec![9, 0]);
+        assert_eq!(reader.next().unwrap().unwrap(), vec![9, 0, 9, 0]);
+        assert_eq!(reader.next().unwrap().unwrap(), vec![]);
+        assert_eq!(reader.next().unwrap().unwrap(), vec![]);
+        assert_eq!(reader.next().unwrap().unwrap(), vec![9]);
+        assert_none(reader);
+    }
+
+    #[test]
     fn many_returns() {
         let mut stream = MockStream::new();
         stream.push_bytes_to_read(&[0, 1, 0, 1, 0, 1, 1, 0, 1]);
@@ -164,7 +175,9 @@ mod tests {
     #[test]
     fn many_returns_complex_delim() {
         let mut stream = MockStream::new();
-        stream.push_bytes_to_read(&[0, 1, 3, 4, 0, 1, 0, 3, 4, 3, 0, 1, 2, 3, 4, 3, 4, 3, 1]);
+        stream.push_bytes_to_read(&[
+            0, 1, 3, 4, 0, 1, 0, 3, 4, 3, 0, 1, 2, 3, 4, 3, 4, 3, 1, 3, 3, 4, 3, 4,
+        ]);
         let inner = BufReader::new(stream);
         let delim = [3, 4];
         let mut reader = IfsReader::new(inner, &delim);
@@ -172,7 +185,8 @@ mod tests {
         assert_eq!(reader.next().unwrap().unwrap(), vec![0, 1, 0]);
         assert_eq!(reader.next().unwrap().unwrap(), vec![3, 0, 1, 2]);
         assert_eq!(reader.next().unwrap().unwrap(), vec![]);
-        assert_eq!(reader.next().unwrap().unwrap(), vec![3, 1]);
+        assert_eq!(reader.next().unwrap().unwrap(), vec![3, 1, 3]);
+        assert_eq!(reader.next().unwrap().unwrap(), vec![]);
         assert_none(reader);
     }
 
