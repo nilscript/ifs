@@ -1,36 +1,90 @@
 #![feature(option_result_contains)]
 
 use std::io::{BufRead, Error, ErrorKind};
+use std::str;
 
 /// An iterator over delimeted bytes.
 ///
-/// Can be created by importing `ifs::Ifs` and calling `separator` on
-/// `std::io::BufReader`.
+/// Can be created by importing [`ifs::Ifs`] and calling
+/// [`std::io::BufReader`]::[`split_binary`].
+/// 
+/// The iterator will yield instances of [`io::Result`]<[`Vec<u8>`]>.
+///
+/// # Examples
+///
+/// Simple usage
+/// ```
+/// # use ifs::Ifs;
+/// # use std::io::{self, BufReader};
+/// # use std::fs::File;
+/// let file = File::open("res/doctest-ladder.bin").unwrap();
+/// let mut ifs = BufReader::new(file).split_binary(&[0x89]);
+/// 
+/// assert_eq!(ifs.next().unwrap().unwrap(), [0x01, 0x23, 0x45, 0x67]);
+/// assert_eq!(ifs.next().unwrap().unwrap(), [0xAB, 0xCD, 0xEF]);
+/// assert!(ifs.next().is_none());
+/// ```
+///
+/// For demonstration purposes I will be using [`mockstream::MockStream`]
+/// The iterator can take in longer deliminators.
+/// ```
+/// # use ifs::Ifs;
+/// # use mockstream::MockStream;
+/// # use std::io::{self, BufReader};
+/// let mut stream = MockStream::new();
+/// stream.push_bytes_to_read(b"Testing string to test with"); 
+/// let mut iter = BufReader::new(stream).split_binary(b"ing");
+///
+/// assert_eq!(iter.next().unwrap().unwrap(), b"Test");
+/// assert_eq!(iter.next().unwrap().unwrap(), b" str");
+/// assert_eq!(iter.next().unwrap().unwrap(), b" to test with");
+/// assert!(iter.next().is_none());
+/// ```
+///
+/// It can also take in zero deliminators.
+/// ```
+/// # use ifs::Ifs;
+/// # use mockstream::MockStream;
+/// # use std::io::{self, BufReader};
+/// let mut stream = MockStream::new();
+/// stream.push_bytes_to_read(&[1, 2, 3]); 
+/// let mut iter = BufReader::new(stream).split_binary(&[]);
+///
+/// assert_eq!(iter.next().unwrap().unwrap(), [1]);
+/// assert_eq!(iter.next().unwrap().unwrap(), [2]);
+/// assert_eq!(iter.next().unwrap().unwrap(), [3]);
+/// assert!(iter.next().is_none());
+/// ```
+/// 
+/// [`ifs::Ifs`]: crate::Ifs
+/// [`split_binary`]: crate::Ifs::split_binary
+/// [`io::Result`]: std::io::Result
+/// [`read_to_end`]: std::io::Read::read_to_end
 #[derive(Debug)]
-pub struct Separator<R, D> {
+pub struct SplitBinary<'a, R> {
     inner: R,
-    delim: D,
+    delim: &'a [u8],
 }
 
-impl<R, D> Separator<R, D> {
+impl<'a, R> SplitBinary<'a, R> {
     /// Constructs a new iterator.
     ///
     /// # Examples
     ///
     /// ```
-    /// use ifs::Separator;
+    /// use ifs::SplitBinary;
     /// use std::io::BufReader;
     /// use std::fs::File;
     ///
     /// fn main() -> std::io::Result<()> {
-    ///    let reader = BufReader::new(File::open("res/doctest.bin")?);
-    ///    let mut ifs = Separator::new(reader, 0x456789);
+    ///    let reader = BufReader::new(File::open("res/doctest-ladder.bin")?);
+    ///    let mut ifs = SplitBinary::new(reader, &[0x45, 0x67, 0x89]);
     ///
     ///    Ok(())
     /// }
     /// ```
-    pub fn new(inner: R, delim: D) -> Separator<R, D> {
-        Separator { inner, delim }
+    pub fn new(inner: R, delim: &'a [u8]) -> SplitBinary<'a, R> {
+        SplitBinary { inner, delim }
     }
 
     /// Gets a reference to the underlying buffered reader.
@@ -40,13 +94,13 @@ impl<R, D> Separator<R, D> {
     /// # Examples
     ///
     /// ```
-    /// use ifs::Separator;
+    /// use ifs::SplitBinary;
     /// use std::io::BufReader;
     /// use std::fs::File;
     ///
     /// fn main() -> std::io::Result<()> {
-    ///     let reader1 = BufReader::new(File::open("res/doctest.bin")?);
-    ///     let mut ifs = Separator::new(reader1, 0x456789);
+    ///     let reader1 = BufReader::new(File::open("res/doctest-ladder.bin")?);
+    ///     let mut ifs = SplitBinary::new(reader1, &[0x45, 0x67, 0x89]);
     ///
     ///     let reader2 = ifs.get_ref();
     ///     Ok(())
@@ -63,13 +117,13 @@ impl<R, D> Separator<R, D> {
     /// # Examples
     ///
     /// ```
-    /// use ifs::Separator;
+    /// use ifs::SplitBinary;
     /// use std::io::BufReader;
     /// use std::fs::File;
     ///
     /// fn main() -> std::io::Result<()> {
-    ///     let reader1 = BufReader::new(File::open("res/doctest.bin")?);
-    ///     let mut ifs = Separator::new(reader1, 0x456789);
+    ///     let reader1 = BufReader::new(File::open("res/doctest-ladder.bin")?);
+    ///     let mut ifs = SplitBinary::new(reader1, &[0x45, 0x67, 0x89]);
     ///
     ///     let mut reader2 = ifs.get_mut();
     ///     Ok(())
@@ -87,13 +141,13 @@ impl<R, D> Separator<R, D> {
     /// # Examples
     ///
     /// ```
-    /// use ifs::Separator;
+    /// use ifs::SplitBinary;
     /// use std::io::BufReader;
     /// use std::fs::File;
     ///
     /// fn main() -> std::io::Result<()> {
-    ///     let reader1 = BufReader::new(File::open("res/doctest.bin")?);
-    ///     let mut ifs = Separator::new(reader1, 0x456789);
+    ///     let reader1 = BufReader::new(File::open("res/doctest-ladder.bin")?);
+    ///     let mut ifs = SplitBinary::new(reader1, &[0x45, 0x67, 0x89]);
     ///
     ///     let reader2 = ifs.into_inner();
     ///     Ok(())
@@ -108,21 +162,21 @@ impl<R, D> Separator<R, D> {
     /// # Examples
     ///
     /// ```
-    /// use ifs::Separator;
+    /// use ifs::SplitBinary;
     /// use std::io::BufReader;
     /// use std::fs::File;
     ///
     /// fn main() -> std::io::Result<()> {
-    ///     let reader1 = BufReader::new(File::open("res/doctest.bin")?);
-    ///     let delim1 = 0x456789;
-    ///     let mut ifs = Separator::new(reader1, delim1);
+    ///     let reader1 = BufReader::new(File::open("res/doctest-ladder.bin")?);
+    ///     let delim1 = &[0x45, 0x67, 0x89];
+    ///     let mut ifs = SplitBinary::new(reader1, delim1);
     ///
     ///     let delim2 = ifs.get_delim();
     ///     Ok(())
     /// }
     /// ```
-    pub fn get_delim(&self) -> &D {
-        &self.delim
+    pub fn get_delim(&self) -> &[u8] {
+        self.delim
     }
 
     /// Sets a new delimeter.
@@ -130,30 +184,39 @@ impl<R, D> Separator<R, D> {
     /// # Examples
     ///
     /// ```
-    /// use ifs::Separator;
+    /// use ifs::SplitBinary;
     /// use std::io::BufReader;
     /// use std::fs::File;
     ///
     /// fn main() -> std::io::Result<()> {
-    ///     let reader1 = BufReader::new(File::open("res/doctest.bin")?);
-    ///     let delim1 = 0x456789;
-    ///     let ifs = Separator::new(reader1, delim1);
-    ///
-    ///     let delim2 = ifs.get_delim();
+    ///     let reader1 = BufReader::new(File::open("res/doctest-ladder.bin")?);
+    ///     let delim1 = [0x45, 0x67, 0x89];
+    ///     let mut ifs = SplitBinary::new(reader1, &delim1);
+    ///     assert_eq!(ifs.next().unwrap().unwrap(), [0x01, 0x23]);
+    ///     
+    ///     let delim2 = [0xCD];
+    ///     ifs.set_delim(&delim2);
+    ///     assert_eq!(ifs.next().unwrap().unwrap(), [0xAB]);
+    ///     assert_eq!(ifs.next().unwrap().unwrap(), [0xEF]);
+    ///     assert!(ifs.next().is_none());
     ///     Ok(())
     /// }
     /// ```
-    pub fn set_delim(&mut self, delim: D) {
+    pub fn set_delim(&mut self, delim: &'a [u8]) {
         self.delim = delim;
     }
 }
 
-impl<R: BufRead, D: AsRef<[u8]>> Iterator for Separator<R, D> {
+impl<R: BufRead> Iterator for SplitBinary<'_, R> {
+    // Why return a Vec<T>? Well the implementation requires a dynamic resizable
+    // buffer and it's possible that some performance is gained by not doing any
+    // preemptive shrinking or memory optimization as the consumer might as well
+    // use the Vec once and drop it.
     type Item = Result<Vec<u8>, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut buf = Vec::new();
-        let delim = self.delim.as_ref();
+        let delim = self.delim;
 
         // Check the back for our matching delimeter
         // With read_until we get the last byte in delim,
@@ -168,13 +231,14 @@ impl<R: BufRead, D: AsRef<[u8]>> Iterator for Separator<R, D> {
 
         // Edge check; Check so delim is not null
         // else return everything in reader
+        /*
         if delim.is_empty() {
             return match self.inner.read_to_end(&mut buf) {
                 Ok(0) => None,
                 Ok(_) => Some(Ok(buf)),
                 Err(e) => Some(Err(e)),
             };
-        }
+        }*/
 
         // Read until end of delim byte and check if delim exists at the end
         // of the buffer or read in more if it was a false positive
@@ -197,32 +261,33 @@ impl<R: BufRead, D: AsRef<[u8]>> Iterator for Separator<R, D> {
 /// Can be created by importing `ifs::Ifs` and calling `fields` on
 /// `std::io::BufReader`.
 #[derive(Debug)]
-pub struct Fields<R, D> {
-    inner: Separator<R, D>,
+pub struct SplitString<'a, R> {
+    inner: SplitBinary<'a, R>,
 }
 
-impl<R, D> Fields<R, D> {
+impl<'a, R> SplitString<'a, R> {
     /// Constructs a new iterator.
     ///
     /// # Examples
     ///
     /// ```
-    /// use ifs::Separator;
+    /// use ifs::SplitString;
     /// use std::io::BufReader;
     /// use std::fs::File;
     ///
     /// fn main() -> std::io::Result<()> {
     ///    let reader = BufReader::new(File::open("res/doctest.txt")?);
-    ///    let mut ifs = Separator::new(reader, "bar");
+    ///    let mut ifs = SplitString::new(reader, "bar");
     ///
     ///    Ok(())
     /// }
     /// ```
-    pub fn new(inner: R, delim: D) -> Fields<R, D> {
-        Fields {
-            inner: Separator::new(inner, delim),
+    pub fn new(inner: R, delim: &'a str) -> SplitString<'a, R> {
+        SplitString {
+            inner: SplitBinary::new(inner, delim.as_bytes()),
         }
     }
+
     /// Gets a reference to the underlying buffered reader.
     ///
     /// It's completly fine to borrow it but output won't be delimeted.
@@ -230,13 +295,13 @@ impl<R, D> Fields<R, D> {
     /// # Examples
     ///
     /// ```
-    /// use ifs::Separator;
+    /// use ifs::SplitString;
     /// use std::io::BufReader;
     /// use std::fs::File;
     ///
     /// fn main() -> std::io::Result<()> {
     ///     let reader1 = BufReader::new(File::open("res/doctest.txt")?);
-    ///     let mut ifs = Separator::new(reader1, "bar");
+    ///     let mut ifs = SplitString::new(reader1, "bar");
     ///
     ///     let reader2 = ifs.get_ref();
     ///     Ok(())
@@ -245,6 +310,7 @@ impl<R, D> Fields<R, D> {
     pub fn get_ref(&self) -> &R {
         self.inner.get_ref()
     }
+
     /// Gets a mutable reference to the underlying buffered reader.
     ///
     /// It's completly fine to borrow it but output won't be delimeted.
@@ -252,13 +318,13 @@ impl<R, D> Fields<R, D> {
     /// # Examples
     ///
     /// ```
-    /// use ifs::Separator;
+    /// use ifs::SplitString;
     /// use std::io::BufReader;
     /// use std::fs::File;
     ///
     /// fn main() -> std::io::Result<()> {
     ///     let reader1 = BufReader::new(File::open("res/doctest.txt")?);
-    ///     let mut ifs = Separator::new(reader1, "bar");
+    ///     let mut ifs = SplitString::new(reader1, "bar");
     ///
     ///     let mut reader2 = ifs.get_mut();
     ///     Ok(())
@@ -267,6 +333,7 @@ impl<R, D> Fields<R, D> {
     pub fn get_mut(&mut self) -> &mut R {
         self.inner.get_mut()
     }
+
     /// Destroys iterator and returns the underlying buffered reader.
     ///
     /// Note that no data is being lost here. No internal buffer is being used
@@ -275,13 +342,13 @@ impl<R, D> Fields<R, D> {
     /// # Examples
     ///
     /// ```
-    /// use ifs::Separator;
+    /// use ifs::SplitString;
     /// use std::io::BufReader;
     /// use std::fs::File;
     ///
     /// fn main() -> std::io::Result<()> {
     ///     let reader1 = BufReader::new(File::open("res/doctest.txt")?);
-    ///     let mut ifs = Separator::new(reader1, "bar");
+    ///     let mut ifs = SplitString::new(reader1, "bar");
     ///
     ///     let reader2 = ifs.into_inner();
     ///     Ok(())
@@ -296,21 +363,21 @@ impl<R, D> Fields<R, D> {
     /// # Examples
     ///
     /// ```
-    /// use ifs::Separator;
+    /// use ifs::SplitString;
     /// use std::io::BufReader;
     /// use std::fs::File;
     ///
     /// fn main() -> std::io::Result<()> {
     ///     let reader1 = BufReader::new(File::open("res/doctest.txt")?);
     ///     let delim1 = "bar";
-    ///     let mut ifs = Separator::new(reader1, delim1);
+    ///     let mut ifs = SplitString::new(reader1, delim1);
     ///
     ///     let delim2 = ifs.get_delim();
     ///     Ok(())
     /// }
     /// ```
-    pub fn get_delim(&self) -> &D {
-        self.inner.get_delim()
+    pub fn get_delim(&self) -> &str {
+        unsafe { str::from_utf8_unchecked(self.inner.get_delim()) }
     }
 
     /// Sets a new delimeter.
@@ -318,25 +385,25 @@ impl<R, D> Fields<R, D> {
     /// # Examples
     ///
     /// ```
-    /// use ifs::Separator;
+    /// use ifs::SplitString;
     /// use std::io::BufReader;
     /// use std::fs::File;
     ///
     /// fn main() -> std::io::Result<()> {
     ///     let reader1 = BufReader::new(File::open("res/doctest.txt")?);
     ///     let delim1 = "bar";
-    ///     let ifs = Separator::new(reader1, delim1);
+    ///     let ifs = SplitString::new(reader1, delim1);
     ///
     ///     let delim2 = ifs.get_delim();
     ///     Ok(())
     /// }
     /// ```
-    pub fn set_delim(&mut self, delim: D) {
-        self.inner.set_delim(delim);
+    pub fn set_delim(&mut self, delim: &'a str) {
+        self.inner.set_delim(delim.as_bytes());
     }
 }
 
-impl<R: BufRead, D: AsRef<[u8]>> Iterator for Fields<R, D> {
+impl<R: BufRead> Iterator for SplitString<'_, R> {
     type Item = Result<String, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -345,12 +412,12 @@ impl<R: BufRead, D: AsRef<[u8]>> Iterator for Fields<R, D> {
     }
 }
 
-pub trait Ifs<D> {
+pub trait Ifs<'a> {
     /// Returns an iterator over delimeted bytes of this reader.
     ///
     /// The iterator will yield instances of [`io::Result`]<[`Vec<u8>`]>.
-    /// Each Vector wont have the delimeter at it's end. 
-    /// If the delimeter is empty the iterator will shortcircuit and 
+    /// Each Vector wont have the delimeter at it's end.
+    /// If the delimeter is empty the iterator will shortcircuit and
     /// return everything read by [`read_to_end`].
     ///
     /// [`io::Result`]: std::io::Result
@@ -364,10 +431,10 @@ pub trait Ifs<D> {
     /// use std::fs::File;
     ///
     /// fn main() -> io::Result<()> {
-    ///     let file = File::open("res/doctest.bin")?;
+    ///     let file = File::open("res/doctest-ladder.bin")?;
     ///     let reader = io::BufReader::new(file);
     ///
-    ///     let mut ifs = reader.separator([0x45, 0x67, 0x89]);
+    ///     let mut ifs = reader.split_binary(&[0x45, 0x67, 0x89]);
     ///
     ///     assert_eq!(ifs.next().unwrap().unwrap(), [0x01, 0x23]);
     ///     assert_eq!(ifs.next().unwrap().unwrap(), [0xAB, 0xCD, 0xEF]);
@@ -375,18 +442,18 @@ pub trait Ifs<D> {
     ///     Ok(())
     /// }
     /// ```
-    fn separator(self, delim: D) -> Separator<Self, D>
+    fn split_binary(self, delim: &'a [u8]) -> SplitBinary<'a, Self>
     where
         Self: BufRead + Sized,
     {
-        Separator::new(self, delim)
+        SplitBinary::new(self, delim)
     }
 
     /// Returns an iterator over delimeted strings of this reader.
     ///
     /// The iterator will yield instances of [`io::Result`]<[`String`]>.
-    /// Each String wont have the delimeter at it's end. 
-    /// If the delimeter is empty the iterator will shortcircuit and 
+    /// Each String wont have the delimeter at it's end.
+    /// If the delimeter is empty the iterator will shortcircuit and
     /// return everything read by [`read_to_end`].
     ///
     /// [`io::Result`]: std::io::Result
@@ -403,24 +470,27 @@ pub trait Ifs<D> {
     ///     let file = File::open("res/doctest.txt")?; // foobarbaz
     ///     let reader = io::BufReader::new(file);
     ///
-    ///     let mut ifs = reader.fields("bar");
+    ///     let mut ifs = reader.split_string("bar");
     ///
     ///     assert_eq!(ifs.next().unwrap().unwrap(), "foo");
+    ///     assert_eq!(ifs.next().unwrap().unwrap(), "bazfoo");
+    ///     assert_eq!(ifs.next().unwrap().unwrap(), "bazfoo");
     ///     assert_eq!(ifs.next().unwrap().unwrap(), "baz");
     ///     assert!(ifs.next().is_none());
     ///     Ok(())
     /// }
     /// ```
-    fn fields(self, delim: D) -> Fields<Self, D>
+    fn split_string(self, delim: &'a str) -> SplitString<'a, Self>
     where
         Self: BufRead + Sized,
     {
-        Fields::new(self, delim)
+        SplitString::new(self, delim)
     }
 }
 
-impl<R, D> Ifs<D> for std::io::BufReader<R> {}
+impl<R> Ifs<'_> for std::io::BufReader<R> {}
 
+/*
 #[cfg(test)]
 mod separator_tests {
     use super::{Ifs, Separator};
@@ -528,3 +598,4 @@ mod separator_tests {
         assert_eq!(reader.next().unwrap().unwrap(), b"baz");
     }
 }
+*/
