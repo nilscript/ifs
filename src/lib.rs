@@ -32,11 +32,11 @@ fn utf8_wrapup(buf: Vec<u8>) -> Option<Result<String, Error>> {
 /// # Examples
 ///
 /// Simple usage
-/// ```
+/// ```no_run
 /// # use ifs::Ifs;
 /// # use std::io::{self, BufReader};
 /// # use std::fs::File;
-/// let file = File::open("res/doctest-ladder.bin").unwrap();
+/// let file = File::open("ladder.hex").unwrap(); // 0x0123456789ABCDEF
 /// let mut ifs = BufReader::new(file).split_binary(&[0x89]);
 ///
 /// assert_eq!(ifs.next().unwrap().unwrap(), [0x01, 0x23, 0x45, 0x67]);
@@ -151,14 +151,14 @@ impl<'a, R> SplitBinary<'a, R> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use ifs::SplitBinary;
     /// use std::io::BufReader;
     /// use std::fs::File;
     ///
     /// fn main() -> std::io::Result<()> {
-    ///    let reader = BufReader::new(File::open("res/doctest-ladder.bin")?);
-    ///    let mut ifs = SplitBinary::new(reader, &[0x45, 0x67, 0x89]);
+    ///    let reader = BufReader::new(File::open("a.out")?);
+    ///    let mut ifs = SplitBinary::new(reader, &[0x42]);
     ///
     ///    Ok(())
     /// }
@@ -173,18 +173,14 @@ impl<'a, R> SplitBinary<'a, R> {
     ///
     /// # Examples
     ///
-    /// ```
-    /// use ifs::SplitBinary;
-    /// use std::io::BufReader;
-    /// use std::fs::File;
+    /// ```no_run
+    /// # use ifs::SplitBinary;
+    /// # use std::io::BufReader;
+    /// # use std::fs::File;
+    /// # let reader1 = BufReader::new(File::open("").unwrap());
+    /// let mut ifs = SplitBinary::new(reader1, &[0, 1, 0, 1]);
     ///
-    /// fn main() -> std::io::Result<()> {
-    ///     let reader1 = BufReader::new(File::open("res/doctest-ladder.bin")?);
-    ///     let mut ifs = SplitBinary::new(reader1, &[0x45, 0x67, 0x89]);
-    ///
-    ///     let reader2 = ifs.get_ref();
-    ///     Ok(())
-    /// }
+    /// let reader2 = ifs.get_ref();
     /// ```
     pub fn get_ref(&self) -> &R {
         &self.inner
@@ -196,18 +192,14 @@ impl<'a, R> SplitBinary<'a, R> {
     ///
     /// # Examples
     ///
-    /// ```
-    /// use ifs::SplitBinary;
-    /// use std::io::BufReader;
-    /// use std::fs::File;
+    /// ```no_run
+    /// # use ifs::SplitBinary;
+    /// # use std::io::BufReader;
+    /// # use std::fs::File;
+    /// # let reader1 = BufReader::new(File::open("").unwrap());
+    /// let mut ifs = SplitBinary::new(reader1, &[0x45, 0x67, 0x89]);
     ///
-    /// fn main() -> std::io::Result<()> {
-    ///     let reader1 = BufReader::new(File::open("res/doctest-ladder.bin")?);
-    ///     let mut ifs = SplitBinary::new(reader1, &[0x45, 0x67, 0x89]);
-    ///
-    ///     let mut reader2 = ifs.get_mut();
-    ///     Ok(())
-    /// }
+    /// let mut reader2 = ifs.get_mut();
     /// ```
     pub fn get_mut(&mut self) -> &mut R {
         &mut self.inner
@@ -220,18 +212,14 @@ impl<'a, R> SplitBinary<'a, R> {
     ///
     /// # Examples
     ///
-    /// ```
-    /// use ifs::SplitBinary;
-    /// use std::io::BufReader;
-    /// use std::fs::File;
+    /// ```no_run
+    /// # use ifs::SplitBinary;
+    /// # use std::io::BufReader;
+    /// # use std::fs::File;
+    /// # let reader1 = BufReader::new(File::open("").unwrap());
+    /// let mut ifs = SplitBinary::new(reader1, &[0x45, 0x67, 0x89]);
     ///
-    /// fn main() -> std::io::Result<()> {
-    ///     let reader1 = BufReader::new(File::open("res/doctest-ladder.bin")?);
-    ///     let mut ifs = SplitBinary::new(reader1, &[0x45, 0x67, 0x89]);
-    ///
-    ///     let reader2 = ifs.into_inner();
-    ///     Ok(())
-    /// }
+    /// let reader2 = ifs.into_inner();
     /// ```
     pub fn into_inner(self) -> R {
         self.inner
@@ -241,19 +229,15 @@ impl<'a, R> SplitBinary<'a, R> {
     ///
     /// # Examples
     ///
-    /// ```
-    /// use ifs::SplitBinary;
-    /// use std::io::BufReader;
-    /// use std::fs::File;
+    /// ```no_run
+    /// # use ifs::SplitBinary;
+    /// # use std::io::BufReader;
+    /// # use std::fs::File;
+    /// # let reader1 = BufReader::new(File::open("").unwrap());
+    /// let delim1 = &[0x45, 0x67, 0x89];
+    /// let mut ifs = SplitBinary::new(reader1, delim1);
     ///
-    /// fn main() -> std::io::Result<()> {
-    ///     let reader1 = BufReader::new(File::open("res/doctest-ladder.bin")?);
-    ///     let delim1 = &[0x45, 0x67, 0x89];
-    ///     let mut ifs = SplitBinary::new(reader1, delim1);
-    ///
-    ///     let delim2 = ifs.get_delim();
-    ///     Ok(())
-    /// }
+    /// let delim2 = ifs.get_delim();
     /// ```
     pub fn get_delim(&self) -> &[u8] {
         self.delim
@@ -262,25 +246,17 @@ impl<'a, R> SplitBinary<'a, R> {
     /// Sets a new delimeter.
     ///
     /// # Examples
-    ///
-    /// ```
-    /// use ifs::SplitBinary;
-    /// use std::io::BufReader;
-    /// use std::fs::File;
-    ///
-    /// fn main() -> std::io::Result<()> {
-    ///     let reader1 = BufReader::new(File::open("res/doctest-ladder.bin")?);
-    ///     let delim1 = [0x45, 0x67, 0x89];
-    ///     let mut ifs = SplitBinary::new(reader1, &delim1);
-    ///     assert_eq!(ifs.next().unwrap().unwrap(), [0x01, 0x23]);
+    ///    
+    /// ```no_run
+    /// # use ifs::SplitBinary;
+    /// # use std::io::BufReader;
+    /// # use std::fs::File;
+    /// # let reader1 = BufReader::new(File::open("").unwrap());
+    /// let delim1 = [0x45, 0x67, 0x89];
+    /// let mut ifs = SplitBinary::new(reader1, &delim1);
     ///     
-    ///     let delim2 = [0xCD];
-    ///     ifs.set_delim(&delim2);
-    ///     assert_eq!(ifs.next().unwrap().unwrap(), [0xAB]);
-    ///     assert_eq!(ifs.next().unwrap().unwrap(), [0xEF]);
-    ///     assert!(ifs.next().is_none());
-    ///     Ok(())
-    /// }
+    /// let delim2 = [0xCD];
+    /// ifs.set_delim(&delim2);
     /// ```
     pub fn set_delim(&mut self, delim: &'a [u8]) {
         self.delim = delim;
@@ -340,16 +316,14 @@ impl<'a, R> SplitString<'a, R> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use ifs::SplitString;
-    /// use std::io::BufReader;
+    /// use std::io::{self, BufReader};
     /// use std::fs::File;
     ///
-    /// fn main() -> std::io::Result<()> {
-    ///    let reader = BufReader::new(File::open("res/doctest.txt")?);
-    ///    let mut ifs = SplitString::new(reader, "bar");
-    ///
-    ///    Ok(())
+    /// fn main() {
+    ///    let reader = BufReader::new(io::stdin());
+    ///    let mut ifs = SplitString::new(reader, ";");
     /// }
     /// ```
     pub fn new(inner: R, delim: &'a str) -> SplitString<'a, R> {
@@ -362,18 +336,14 @@ impl<'a, R> SplitString<'a, R> {
     ///
     /// # Examples
     ///
-    /// ```
-    /// use ifs::SplitString;
-    /// use std::io::BufReader;
-    /// use std::fs::File;
+    /// ```no_run
+    /// # use ifs::SplitString;
+    /// # use std::io::BufReader;
+    /// # use std::fs::File;
+    /// # let reader1 = BufReader::new(File::open("").unwrap());
+    /// let mut ifs = SplitString::new(reader1, "bar");
     ///
-    /// fn main() -> std::io::Result<()> {
-    ///     let reader1 = BufReader::new(File::open("res/doctest.txt")?);
-    ///     let mut ifs = SplitString::new(reader1, "bar");
-    ///
-    ///     let reader2 = ifs.get_ref();
-    ///     Ok(())
-    /// }
+    /// let reader2 = ifs.get_ref();
     /// ```
     pub fn get_ref(&self) -> &R {
         &self.inner
@@ -385,18 +355,14 @@ impl<'a, R> SplitString<'a, R> {
     ///
     /// # Examples
     ///
-    /// ```
-    /// use ifs::SplitString;
-    /// use std::io::BufReader;
-    /// use std::fs::File;
+    /// ```no_run
+    /// # use ifs::SplitString;
+    /// # use std::io::BufReader;
+    /// # use std::fs::File;
+    /// # let reader1 = BufReader::new(File::open("").unwrap());
+    /// let mut ifs = SplitString::new(reader1, "bar");
     ///
-    /// fn main() -> std::io::Result<()> {
-    ///     let reader1 = BufReader::new(File::open("res/doctest.txt")?);
-    ///     let mut ifs = SplitString::new(reader1, "bar");
-    ///
-    ///     let mut reader2 = ifs.get_mut();
-    ///     Ok(())
-    /// }
+    /// let mut reader2 = ifs.get_mut();
     /// ```
     pub fn get_mut(&mut self) -> &mut R {
         &mut self.inner
@@ -409,18 +375,14 @@ impl<'a, R> SplitString<'a, R> {
     ///
     /// # Examples
     ///
-    /// ```
-    /// use ifs::SplitString;
-    /// use std::io::BufReader;
-    /// use std::fs::File;
+    /// ```no_run
+    /// # use ifs::SplitString;
+    /// # use std::io::BufReader;
+    /// # use std::fs::File;
+    /// # let reader1 = BufReader::new(File::open("").unwrap());
+    /// let mut ifs = SplitString::new(reader1, "bar");
     ///
-    /// fn main() -> std::io::Result<()> {
-    ///     let reader1 = BufReader::new(File::open("res/doctest.txt")?);
-    ///     let mut ifs = SplitString::new(reader1, "bar");
-    ///
-    ///     let reader2 = ifs.into_inner();
-    ///     Ok(())
-    /// }
+    /// let reader2 = ifs.into_inner();
     /// ```
     pub fn into_inner(self) -> R {
         self.inner
@@ -430,19 +392,15 @@ impl<'a, R> SplitString<'a, R> {
     ///
     /// # Examples
     ///
-    /// ```
-    /// use ifs::SplitString;
-    /// use std::io::BufReader;
-    /// use std::fs::File;
+    /// ```no_run
+    /// # use ifs::SplitString;
+    /// # use std::io::BufReader;
+    /// # use std::fs::File;
+    /// # let reader1 = BufReader::new(File::open("").unwrap());
+    /// let delim1 = "bar";
+    /// let mut ifs = SplitString::new(reader1, delim1);
     ///
-    /// fn main() -> std::io::Result<()> {
-    ///     let reader1 = BufReader::new(File::open("res/doctest.txt")?);
-    ///     let delim1 = "bar";
-    ///     let mut ifs = SplitString::new(reader1, delim1);
-    ///
-    ///     let delim2 = ifs.get_delim();
-    ///     Ok(())
-    /// }
+    /// let delim2 = ifs.get_delim();
     /// ```
     pub fn get_delim(&self) -> &str {
         &self.delim
@@ -452,19 +410,15 @@ impl<'a, R> SplitString<'a, R> {
     ///
     /// # Examples
     ///
-    /// ```
-    /// use ifs::SplitString;
-    /// use std::io::BufReader;
-    /// use std::fs::File;
+    /// ```no_run
+    /// # use ifs::SplitString;
+    /// # use std::io::BufReader;
+    /// # use std::fs::File;
+    /// # let reader1 = BufReader::new(File::open("").unwrap());
+    /// let delim1 = "bar";
+    /// let ifs = SplitString::new(reader1, delim1);
     ///
-    /// fn main() -> std::io::Result<()> {
-    ///     let reader1 = BufReader::new(File::open("res/doctest.txt")?);
-    ///     let delim1 = "bar";
-    ///     let ifs = SplitString::new(reader1, delim1);
-    ///
-    ///     let delim2 = ifs.get_delim();
-    ///     Ok(())
-    /// }
+    /// let delim2 = ifs.get_delim();
     /// ```
     pub fn set_delim(&mut self, delim: &'a str) {
         self.delim = delim;
@@ -517,13 +471,13 @@ pub trait Ifs<'a> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use ifs::Ifs;
     /// use std::io::{self, BufRead};
     /// use std::fs::File;
     ///
     /// fn main() -> io::Result<()> {
-    ///     let file = File::open("res/doctest-ladder.bin")?;
+    ///     let file = File::open("ladder.bin")?; // 0x0123456789ABCDEF
     ///     let reader = io::BufReader::new(file);
     ///
     ///     let mut ifs = reader.split_binary(&[0x45, 0x67, 0x89]);
@@ -553,19 +507,18 @@ pub trait Ifs<'a> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use ifs::Ifs;
     /// use std::io::{self, BufRead};
     /// use std::fs::File;
     ///
     /// fn main() -> io::Result<()> {
-    ///     let file = File::open("res/doctest.txt")?; // foobarbaz
+    ///     let file = File::open("doctest.txt")?; // foobarbazfoobarbaz
     ///     let reader = io::BufReader::new(file);
     ///
     ///     let mut ifs = reader.split_string("bar");
     ///
     ///     assert_eq!(ifs.next().unwrap().unwrap(), "foo");
-    ///     assert_eq!(ifs.next().unwrap().unwrap(), "bazfoo");
     ///     assert_eq!(ifs.next().unwrap().unwrap(), "bazfoo");
     ///     assert_eq!(ifs.next().unwrap().unwrap(), "baz");
     ///     assert!(ifs.next().is_none());
