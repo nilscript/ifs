@@ -3,11 +3,30 @@
 use std::io::{BufRead, Error, ErrorKind};
 use std::str;
 
+/// Checks the haystacks back if it contains the needle
+/// Not a general search implementation at all.
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .rchunks_exact(needle.len())
+        .next()
+        .contains(&needle)
+}
+
+/// Converts vec to string and
+/// wraps up FromUtf8Error into [`io::Error`] type.
+fn utf8_wrapup(buf: Vec<u8>) -> Option<Result<String, Error>> {
+    if buf.is_empty() {
+        None
+    } else {
+        Some(String::from_utf8(buf).map_err(|e| Error::new(ErrorKind::Other, e)))
+    }
+}
+
 /// An iterator over delimeted bytes.
 ///
 /// Can be created by importing [`ifs::Ifs`] and calling
 /// [`std::io::BufReader`]::[`split_binary`].
-/// 
+///
 /// The iterator will yield instances of [`io::Result`]<[`Vec<u8>`]>.
 ///
 /// # Examples
@@ -19,7 +38,7 @@ use std::str;
 /// # use std::fs::File;
 /// let file = File::open("res/doctest-ladder.bin").unwrap();
 /// let mut ifs = BufReader::new(file).split_binary(&[0x89]);
-/// 
+///
 /// assert_eq!(ifs.next().unwrap().unwrap(), [0x01, 0x23, 0x45, 0x67]);
 /// assert_eq!(ifs.next().unwrap().unwrap(), [0xAB, 0xCD, 0xEF]);
 /// assert!(ifs.next().is_none());
@@ -32,7 +51,7 @@ use std::str;
 /// # use mockstream::MockStream;
 /// # use std::io::{self, BufReader};
 /// let mut stream = MockStream::new();
-/// stream.push_bytes_to_read(b"Testing string to test with"); 
+/// stream.push_bytes_to_read(b"Testing string to test with");
 /// let mut iter = BufReader::new(stream).split_binary(b"ing");
 ///
 /// assert_eq!(iter.next().unwrap().unwrap(), b"Test");
@@ -47,7 +66,7 @@ use std::str;
 /// # use mockstream::MockStream;
 /// # use std::io::{self, BufReader};
 /// let mut stream = MockStream::new();
-/// stream.push_bytes_to_read(&[1, 2, 3]); 
+/// stream.push_bytes_to_read(&[1, 2, 3]);
 /// let mut iter = BufReader::new(stream).split_binary(&[]);
 ///
 /// assert_eq!(iter.next().unwrap().unwrap(), [1]);
@@ -55,7 +74,68 @@ use std::str;
 /// assert_eq!(iter.next().unwrap().unwrap(), [3]);
 /// assert!(iter.next().is_none());
 /// ```
-/// 
+///
+/// If delim pattern is right besids each other, 
+/// you will end up with empty vectors.
+/// ```
+/// # use ifs::Ifs;
+/// # use mockstream::MockStream;
+/// # use std::io::{self, BufReader};
+/// let mut stream = MockStream::new();
+/// stream.push_bytes_to_read(&[0, 0, 0, 0, 1, 0, 0, 2, 0, 3]);
+/// let mut iter = BufReader::new(stream).split_binary(&[0]);
+///
+/// assert_eq!(iter.next().unwrap().unwrap(), []);
+/// assert_eq!(iter.next().unwrap().unwrap(), []);
+/// assert_eq!(iter.next().unwrap().unwrap(), []);
+/// assert_eq!(iter.next().unwrap().unwrap(), []);
+/// assert_eq!(iter.next().unwrap().unwrap(), [1]);
+/// assert_eq!(iter.next().unwrap().unwrap(), []);
+/// assert_eq!(iter.next().unwrap().unwrap(), [2]);
+/// assert_eq!(iter.next().unwrap().unwrap(), [3]);
+/// assert!(iter.next().is_none());
+/// ```
+///
+/// Unlike [`str::split`] deliminators (or separators) at the end of a stream
+/// can't be sepparated into an empty array.
+/// ```
+/// # use ifs::Ifs;
+/// # use mockstream::MockStream;
+/// # use std::io::{self, BufReader};
+/// let mut stream = MockStream::new();
+/// stream.push_bytes_to_read(&[0, 1, 0]);
+/// let mut iter = BufReader::new(stream).split_binary(&[0]);
+///
+/// assert_eq!(iter.next().unwrap().unwrap(), []);
+/// assert_eq!(iter.next().unwrap().unwrap(), [1]);
+/// assert!(iter.next().is_none());
+/// ```
+///
+/// If it can't detect a delim pattern it will return everything there is.
+/// ```
+/// # use ifs::Ifs;
+/// # use mockstream::MockStream;
+/// # use std::io::{self, BufReader};
+/// let mut stream = MockStream::new();
+/// stream.push_bytes_to_read(&[1, 2, 3, 4, 5, 6]);
+/// let mut iter = BufReader::new(stream).split_binary(&[0]);
+///
+/// assert_eq!(iter.next().unwrap().unwrap(), [1, 2, 3, 4, 5, 6]);
+/// assert!(iter.next().is_none());
+/// ```
+///
+/// If it input only consist of an EOF it won't return anything.
+/// ```
+/// # use ifs::Ifs;
+/// # use mockstream::MockStream;
+/// # use std::io::{self, BufReader};
+/// let mut stream = MockStream::new();
+/// stream.push_bytes_to_read(&[]);
+/// let mut iter = BufReader::new(stream).split_binary(&[0]);
+///
+/// assert!(iter.next().is_none());
+/// ```
+///
 /// [`ifs::Ifs`]: crate::Ifs
 /// [`split_binary`]: crate::Ifs::split_binary
 /// [`io::Result`]: std::io::Result
@@ -218,27 +298,16 @@ impl<R: BufRead> Iterator for SplitBinary<'_, R> {
         let mut buf = Vec::new();
         let delim = self.delim;
 
-        // Check the back for our matching delimeter
-        // With read_until we get the last byte in delim,
-        // so theory goes we also read in the entire delim
-        // and buffer contains it
-        let contains = |haystack: &[u8], needle: &[u8]| {
-            haystack
-                .rchunks_exact(needle.len())
-                .next()
-                .contains(&needle)
-        };
-
         // Edge check; Check so delim is not null
-        // else return everything in reader
-        /*
+        // else return one byte at a time
         if delim.is_empty() {
-            return match self.inner.read_to_end(&mut buf) {
-                Ok(0) => None,
+            buf.resize(1, 0);
+            return match self.inner.read_exact(&mut buf[..1]) {
                 Ok(_) => Some(Ok(buf)),
+                Err(e) if e.kind() == ErrorKind::UnexpectedEof => None,
                 Err(e) => Some(Err(e)),
             };
-        }*/
+        }
 
         // Read until end of delim byte and check if delim exists at the end
         // of the buffer or read in more if it was a false positive
@@ -256,13 +325,14 @@ impl<R: BufRead> Iterator for SplitBinary<'_, R> {
     }
 }
 
-/// An iterator over delimeted string fields.
+/// An iterator over delimeted utf8 string fields.
 ///
 /// Can be created by importing `ifs::Ifs` and calling `fields` on
 /// `std::io::BufReader`.
 #[derive(Debug)]
 pub struct SplitString<'a, R> {
-    inner: SplitBinary<'a, R>,
+    inner: R,
+    delim: &'a str,
 }
 
 impl<'a, R> SplitString<'a, R> {
@@ -283,9 +353,7 @@ impl<'a, R> SplitString<'a, R> {
     /// }
     /// ```
     pub fn new(inner: R, delim: &'a str) -> SplitString<'a, R> {
-        SplitString {
-            inner: SplitBinary::new(inner, delim.as_bytes()),
-        }
+        SplitString { inner, delim }
     }
 
     /// Gets a reference to the underlying buffered reader.
@@ -308,7 +376,7 @@ impl<'a, R> SplitString<'a, R> {
     /// }
     /// ```
     pub fn get_ref(&self) -> &R {
-        self.inner.get_ref()
+        &self.inner
     }
 
     /// Gets a mutable reference to the underlying buffered reader.
@@ -331,7 +399,7 @@ impl<'a, R> SplitString<'a, R> {
     /// }
     /// ```
     pub fn get_mut(&mut self) -> &mut R {
-        self.inner.get_mut()
+        &mut self.inner
     }
 
     /// Destroys iterator and returns the underlying buffered reader.
@@ -355,7 +423,7 @@ impl<'a, R> SplitString<'a, R> {
     /// }
     /// ```
     pub fn into_inner(self) -> R {
-        self.inner.into_inner()
+        self.inner
     }
 
     /// Gets a reference to the delimeter used.
@@ -377,7 +445,7 @@ impl<'a, R> SplitString<'a, R> {
     /// }
     /// ```
     pub fn get_delim(&self) -> &str {
-        unsafe { str::from_utf8_unchecked(self.inner.get_delim()) }
+        &self.delim
     }
 
     /// Sets a new delimeter.
@@ -399,7 +467,7 @@ impl<'a, R> SplitString<'a, R> {
     /// }
     /// ```
     pub fn set_delim(&mut self, delim: &'a str) {
-        self.inner.set_delim(delim.as_bytes());
+        self.delim = delim;
     }
 }
 
@@ -407,8 +475,32 @@ impl<R: BufRead> Iterator for SplitString<'_, R> {
     type Item = Result<String, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let conv = |vec| String::from_utf8(vec).map_err(|e| Error::new(ErrorKind::Other, e));
-        self.inner.next().map(|res| res.and_then(conv))
+        let mut buf = Vec::new();
+        let delim = self.delim.as_bytes();
+
+        // Due to implementation difficulty
+        // it cannot return one character at the time,
+        // like it's binary counterpart can and it will likely stay that way.
+        if delim.is_empty() {
+            let mut buf = String::new();
+            return match self.inner.read_to_string(&mut buf) {
+                Ok(0) => None,
+                Ok(_) => Some(Ok(buf)),
+                Err(e) => Some(Err(e)),
+            };
+        }
+
+        loop {
+            match self.inner.read_until(*delim.last().unwrap(), &mut buf) {
+                Ok(0) => return utf8_wrapup(buf),
+                Ok(_) if contains(&buf, &delim) => {
+                    buf.truncate(buf.len() - delim.len());
+                    return utf8_wrapup(buf);
+                }
+                Err(e) => return Some(Err(e)),
+                _ => continue,
+            }
+        }
     }
 }
 
@@ -489,113 +581,3 @@ pub trait Ifs<'a> {
 }
 
 impl<R> Ifs<'_> for std::io::BufReader<R> {}
-
-/*
-#[cfg(test)]
-mod separator_tests {
-    use super::{Ifs, Separator};
-    use mockstream::MockStream;
-    use std::io::{BufRead, BufReader};
-
-    fn assert_none<R, D>(mut reader: Separator<R, D>)
-    where
-        R: BufRead,
-        D: AsRef<[u8]>,
-    {
-        assert!(reader.next().is_none());
-        assert!(reader.next().is_none());
-    }
-
-    #[test]
-    fn no_input() {
-        let reader = BufReader::new(MockStream::new()).separator([4]);
-        assert_none(reader);
-    }
-
-    #[test]
-    fn no_detectable_delim_pattern() {
-        let mut stream = MockStream::new();
-        stream.push_bytes_to_read(&[0, 1, 2, 3, 4, 5, 6]);
-        let mut reader = BufReader::new(stream).separator([7]);
-        assert_eq!(reader.next().unwrap().unwrap(), [0, 1, 2, 3, 4, 5, 6]);
-        assert_none(reader);
-    }
-
-    #[test]
-    fn detectable_delim_pattern() {
-        let mut stream = MockStream::new();
-        stream.push_bytes_to_read(&[0, 1, 2, 3, 4, 5, 6, 7]);
-        let mut reader = BufReader::new(stream).separator([3]);
-        assert_eq!(reader.next().unwrap().unwrap(), [0, 1, 2]);
-        assert_eq!(reader.next().unwrap().unwrap(), [4, 5, 6, 7]);
-        assert_none(reader);
-    }
-
-    #[test]
-    fn no_delim() {
-        let mut stream = MockStream::new();
-        stream.push_bytes_to_read(&[0, 1, 2, 3, 4, 5, 6]);
-        let mut reader = BufReader::new(stream).separator([]);
-        assert_eq!(reader.next().unwrap().unwrap(), [0, 1, 2, 3, 4, 5, 6]);
-        assert_none(reader);
-    }
-
-    #[test]
-    fn complex_delim() {
-        let mut stream = MockStream::new();
-        stream.push_bytes_to_read(&[0, 1, 2, 3, 4, 5, 6]);
-        let mut reader = BufReader::new(stream).separator([3, 4]);
-        assert_eq!(reader.next().unwrap().unwrap(), [0, 1, 2]);
-        assert_eq!(reader.next().unwrap().unwrap(), [5, 6]);
-        assert_none(reader);
-    }
-
-    #[test]
-    fn complexer_delim() {
-        let mut stream = MockStream::new();
-        stream.push_bytes_to_read(&[9, 0, 9, 9, 9, 0, 9, 0, 9, 9, 9, 9, 9, 9, 9]);
-        let mut reader = BufReader::new(stream).separator([9, 9]);
-        assert_eq!(reader.next().unwrap().unwrap(), [9, 0]);
-        assert_eq!(reader.next().unwrap().unwrap(), [9, 0, 9, 0]);
-        assert_eq!(reader.next().unwrap().unwrap(), []);
-        assert_eq!(reader.next().unwrap().unwrap(), []);
-        assert_eq!(reader.next().unwrap().unwrap(), [9]);
-        assert_none(reader);
-    }
-
-    #[test]
-    fn many_returns_complex_delim() {
-        let mut stream = MockStream::new();
-        stream.push_bytes_to_read(&[
-            0, 1, 3, 4, 0, 1, 0, 3, 4, 3, 0, 1, 2, 3, 4, 3, 4, 3, 1, 3, 3, 4, 3, 4,
-        ]);
-        let mut reader = BufReader::new(stream).separator([3, 4]);
-        assert_eq!(reader.next().unwrap().unwrap(), vec![0, 1]);
-        assert_eq!(reader.next().unwrap().unwrap(), vec![0, 1, 0]);
-        assert_eq!(reader.next().unwrap().unwrap(), vec![3, 0, 1, 2]);
-        assert_eq!(reader.next().unwrap().unwrap(), vec![]);
-        assert_eq!(reader.next().unwrap().unwrap(), vec![3, 1, 3]);
-        assert_eq!(reader.next().unwrap().unwrap(), vec![]);
-        assert_none(reader);
-    }
-
-    #[test]
-    fn simple_bit_string_delim() {
-        let mut stream = MockStream::new();
-        stream.push_bytes_to_read(b"Hello World!");
-        let mut reader = BufReader::new(stream).separator(" ");
-        assert_eq!(reader.next().unwrap().unwrap(), b"Hello");
-        assert_eq!(reader.next().unwrap().unwrap(), b"World!")
-    }
-
-    #[test]
-    fn complex_delim_string() {
-        let mut stream = MockStream::new();
-        stream.push_bytes_to_read(b"foo, bar, baz");
-        let mut reader = BufReader::new(stream).separator(b", ");
-        assert_eq!(reader.next().unwrap().unwrap(), b"foo");
-        assert_eq!(reader.next().unwrap().unwrap(), b"bar");
-        assert_eq!(reader.next().unwrap().unwrap(), b"baz");
-    }
-}
-*/
