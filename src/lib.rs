@@ -1,15 +1,13 @@
-#![feature(option_result_contains)]
-
 use std::io::{BufRead, Error, ErrorKind};
-use std::str;
 
 /// Checks the haystacks back if it contains the needle
 /// Not a general search implementation at all.
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
-    haystack
+    let found = haystack
         .rchunks_exact(needle.len())
-        .next()
-        .contains(&needle)
+        .next();
+
+    matches!(found, Some(needle))
 }
 
 /// Converts vec to string and
@@ -25,7 +23,7 @@ fn utf8_wrapup(buf: Vec<u8>) -> Option<Result<String, Error>> {
 /// An iterator over delimeted bytes.
 ///
 /// Can be created by importing [`ifs::Ifs`] and calling
-/// [`std::io::BufReader`]::[`split_binary`].
+/// [`BufReader`]::[`split_binary`].
 ///
 /// The iterator will yield instances of [`io::Result`]<[`Vec<u8>`]>.
 ///
@@ -33,18 +31,23 @@ fn utf8_wrapup(buf: Vec<u8>) -> Option<Result<String, Error>> {
 ///
 /// Simple usage
 /// ```no_run
-/// # use ifs::Ifs;
-/// # use std::io::{self, BufReader};
-/// # use std::fs::File;
-/// let file = File::open("ladder.hex").unwrap(); // 0x0123456789ABCDEF
-/// let mut ifs = BufReader::new(file).split_binary(&[0x89]);
+/// use ifs::Ifs;
+/// use std::io::{self, BufReader};
+/// use std::fs::File;
+/// 
+/// fn main() -> io::Result<()> {
+///     let file = File::open("ladder.hex")?; // 0x0123456789ABCDEF
+///     let mut ifs = BufReader::new(file).split_binary(&[0x89]);
 ///
-/// assert_eq!(ifs.next().unwrap().unwrap(), [0x01, 0x23, 0x45, 0x67]);
-/// assert_eq!(ifs.next().unwrap().unwrap(), [0xAB, 0xCD, 0xEF]);
-/// assert!(ifs.next().is_none());
+///     assert_eq!(ifs.next().unwrap()?, [0x01, 0x23, 0x45, 0x67]);
+///     assert_eq!(ifs.next().unwrap()?, [0xAB, 0xCD, 0xEF]);
+///     assert!(ifs.next().is_none());
+///     Ok(())
+/// }
 /// ```
 ///
-/// For demonstration purposes I will be using [`mockstream::MockStream`]
+/// *For demonstration purposes I will be using [`mockstream::MockStream`].*
+///
 /// The iterator can take in longer deliminators.
 /// ```
 /// # use ifs::Ifs;
@@ -136,10 +139,11 @@ fn utf8_wrapup(buf: Vec<u8>) -> Option<Result<String, Error>> {
 /// assert!(iter.next().is_none());
 /// ```
 ///
+/// [`BufReader`]: std::io::BufReader
 /// [`ifs::Ifs`]: crate::Ifs
-/// [`split_binary`]: crate::Ifs::split_binary
 /// [`io::Result`]: std::io::Result
-/// [`read_to_end`]: std::io::Read::read_to_end
+/// [`mockstream::Mockstream`]: https://docs.rs/mockstream/0.0.3/mockstream/struct.MockStream.html
+/// [`split_binary`]: crate::Ifs::split_binary
 #[derive(Debug)]
 pub struct SplitBinary<'a, R> {
     inner: R,
@@ -264,7 +268,7 @@ impl<'a, R> SplitBinary<'a, R> {
 }
 
 impl<R: BufRead> Iterator for SplitBinary<'_, R> {
-    // Why return a Vec<T>? Well the implementation requires a dynamic resizable
+    // Why return a Vec? Well the implementation requires a dynamic resizable
     // buffer and it's possible that some performance is gained by not doing any
     // preemptive shrinking or memory optimization as the consumer might as well
     // use the Vec once and drop it.
@@ -289,7 +293,11 @@ impl<R: BufRead> Iterator for SplitBinary<'_, R> {
         // of the buffer or read in more if it was a false positive
         loop {
             match self.inner.read_until(*delim.last().unwrap(), &mut buf) {
-                Ok(0) => return if buf.is_empty() { None } else { Some(Ok(buf)) },
+                Ok(0) => return if buf.is_empty() { 
+                    None 
+                } else {
+                    Some(Ok(buf)) 
+                },
                 Ok(_) if contains(&buf, &delim) => {
                     buf.truncate(buf.len() - delim.len());
                     return Some(Ok(buf));
@@ -303,8 +311,39 @@ impl<R: BufRead> Iterator for SplitBinary<'_, R> {
 
 /// An iterator over delimeted utf8 string fields.
 ///
-/// Can be created by importing `ifs::Ifs` and calling `fields` on
-/// `std::io::BufReader`.
+/// Can be created by importing [`ifs::Ifs`] and calling
+/// [`BufReader`]::[`split_binary`].
+///
+/// The iterator will yield instances of [`io::Result`]<[`String`]>.
+///
+/// # Examples
+///
+/// Simple usage
+/// ```no_run
+/// use ifs::Ifs;
+/// use std::io::{self, BufReader};
+///
+/// fn main() -> io::Result<()> {
+///     let mut ifs = BufReader::new(io::stdin()).split_string(" "); // args to parse
+///
+///     assert_eq!(ifs.next().unwrap()?, "args");
+///     assert_eq!(ifs.next().unwrap()?, "to");
+///     assert_eq!(ifs.next().unwrap()?, "parse");
+///     assert!(ifs.next().is_none());
+///     Ok(())
+/// }
+/// ```
+///
+/// *For demonstration purposes I will be using [`mockstream::MockStream`].*
+///
+/// The iterator can take in longer deliminators. 
+///
+/// [`BufReader`]: std::io::BufReader
+/// [`ifs::Ifs`]: crate::Ifs
+/// [`io::Result`]: std::io::Result
+/// [`mockstream::Mockstream`]: https://docs.rs/mockstream/0.0.3/mockstream/struct.MockStream.html
+/// [`split_binary`]: crate::Ifs::split_binary
+/// [`read_to_end`]: std::io::Read::read_to_end
 #[derive(Debug)]
 pub struct SplitString<'a, R> {
     inner: R,
